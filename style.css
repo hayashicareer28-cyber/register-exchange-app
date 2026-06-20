@@ -1,0 +1,111 @@
+body {
+  font-family: sans-serif;
+  max-width: 1100px;
+  margin: 30px auto;
+  padding: 20px;
+  background-color: #f5f5f5;
+  color: #222;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.description {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.register-area {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.register-card {
+  flex: 1;
+  background-color: white;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.register-card h2 {
+  margin-top: 0;
+  border-bottom: 2px solid #333;
+  padding-bottom: 8px;
+}
+
+label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 8px 0;
+  gap: 8px;
+}
+
+input {
+  width: 80px;
+  padding: 6px;
+  font-size: 16px;
+}
+
+.button-area {
+  margin: 25px 0;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+button {
+  padding: 12px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  background-color: #222;
+  color: white;
+}
+
+button:hover {
+  opacity: 0.85;
+}
+
+.result-box {
+  margin-top: 15px;
+  padding: 18px;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  line-height: 1.7;
+}
+
+.copy-box {
+  margin-top: 15px;
+  padding: 18px;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.section-title {
+  margin-top: 25px;
+  padding: 8px 10px;
+  background-color: #eee;
+  border-left: 5px solid #222;
+  font-weight: bold;
+}
+
+@media (max-width: 800px) {
+  .register-area {
+    flex-direction: column;
+  }
+
+  .register-card {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
