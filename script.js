@@ -81,6 +81,134 @@ function createReceiveText(receiveItems) {
   return parts.length === 0 ? "なし" : parts.join("、");
 }
 
+function getForbiddenTakeOutValues(receiveItems) {
+  const forbidden = new Set();
+
+  const valueMap = {
+    "5000円札": 5000,
+    "1000円札": 1000,
+    "500円玉": 500,
+    "100円棒金": 100,
+    "50円棒金": 50,
+    "10円棒金": 10,
+    "5円棒金": 5,
+    "1円棒金": 1
+  };
+
+  for (const name in receiveItems) {
+    if (valueMap[name]) {
+      forbidden.add(valueMap[name]);
+    }
+  }
+
+  return forbidden;
+}
+
+function canMakeAmount(amount, moneyTypes) {
+  const dp = new Array(amount + 1).fill(false);
+  dp[0] = true;
+
+  for (let current = 0; current <= amount; current++) {
+    if (!dp[current]) continue;
+
+    for (const money of moneyTypes) {
+      const next = current + money.value;
+      if (next <= amount) {
+        dp[next] = true;
+      }
+    }
+  }
+
+  return dp[amount];
+}
+
+function findAdjustedTakeOutAmount(baseAmount, receiveItems) {
+  const forbidden = getForbiddenTakeOutValues(receiveItems);
+
+  let takeOutTypes = [
+    { name: "10000円札", value: 10000 },
+    { name: "5000円札", value: 5000 },
+    { name: "1000円札", value: 1000 },
+    { name: "500円玉", value: 500 }
+  ].filter((money) => !forbidden.has(money.value));
+
+  if (takeOutTypes.length === 0) {
+    takeOutTypes = [{ name: "10000円札", value: 10000 }];
+  }
+
+  let target = Math.ceil(baseAmount / 1000) * 1000;
+
+  while (target <= baseAmount + 100000) {
+    if (canMakeAmount(target, takeOutTypes)) {
+      return {
+        amount: target,
+        takeOutTypes
+      };
+    }
+
+    target += 1000;
+  }
+
+  return {
+    amount: Math.ceil(baseAmount / 10000) * 10000,
+    takeOutTypes: [{ name: "10000円札", value: 10000 }]
+  };
+}
+
+function createTakeOutExampleWithAllowedTypes(amount, takeOutTypes) {
+  let remaining = amount;
+  const parts = [];
+
+  const sortedTypes = [...takeOutTypes].sort((a, b) => b.value - a.value);
+
+  for (const money of sortedTypes) {
+    const count = Math.floor(remaining / money.value);
+
+    if (count > 0) {
+      parts.push(`${money.name}${count}枚`);
+      remaining -= count * money.value;
+    }
+  }
+
+  return parts.join("、");
+}
+
+function addAdjustmentToReceive(summary, adjustmentAmount) {
+  if (adjustmentAmount <= 0) return;
+
+  if (adjustmentAmount % 1000 === 0) {
+    addReceiveItem(summary, "1000円札", "枚", adjustmentAmount / 1000);
+    return;
+  }
+
+  if (adjustmentAmount % 500 === 0) {
+    addReceiveItem(summary, "500円玉", "枚", adjustmentAmount / 500);
+    return;
+  }
+
+  addReceiveItem(summary, "1000円札", "枚", Math.ceil(adjustmentAmount / 1000));
+}
+
+function finalizeExternalSummary(summary) {
+  for (let i = 0; i < 5; i++) {
+    const result = findAdjustedTakeOutAmount(summary.amount, summary.receiveItems);
+    const adjustmentAmount = result.amount - summary.amount;
+
+    if (adjustmentAmount === 0) {
+      summary.takeOutAmount = result.amount;
+      summary.takeOutExample = createTakeOutExampleWithAllowedTypes(result.amount, result.takeOutTypes);
+      return;
+    }
+
+    addAdjustmentToReceive(summary, adjustmentAmount);
+    summary.amount = result.amount;
+  }
+
+  const finalResult = findAdjustedTakeOutAmount(summary.amount, summary.receiveItems);
+  summary.takeOutAmount = finalResult.amount;
+  summary.takeOutExample = createTakeOutExampleWithAllowedTypes(finalResult.amount, finalResult.takeOutTypes);
+}
+
 function createRegisterMoveResult() {
   const lowerLimit = 40;
   const upperLimit = 65;
@@ -239,14 +367,16 @@ function createCoinRollExchange(coin, shortage) {
 
 function createExternalExchangeSummary(adjustedCounts) {
   const summaries = {
-    1: { amount: 0, receiveItems: {} },
-    2: { amount: 0, receiveItems: {} },
-    3: { amount: 0, receiveItems: {} }
+    1: { amount: 0, receiveItems: {}, takeOutAmount: 0, takeOutExample: "" },
+    2: { amount: 0, receiveItems: {}, takeOutAmount: 0, takeOutExample: "" },
+    3: { amount: 0, receiveItems: {}, takeOutAmount: 0, takeOutExample: "" }
   };
 
   const totalSummary = {
     amount: 0,
-    receiveItems: {}
+    receiveItems: {},
+    takeOutAmount: 0,
+    takeOutExample: ""
   };
 
   const moneyRules = [
@@ -310,15 +440,21 @@ function createExternalExchangeSummary(adjustedCounts) {
   }
 
   for (const registerNumber of registers) {
+    finalizeExternalSummary(summaries[registerNumber]);
+  }
+
+  for (const registerNumber of registers) {
     const summary = summaries[registerNumber];
 
-    totalSummary.amount += summary.amount;
+    totalSummary.amount += summary.takeOutAmount;
 
     for (const key in summary.receiveItems) {
       const item = summary.receiveItems[key];
       addReceiveItem(totalSummary, item.name, item.unit, item.count);
     }
   }
+
+  totalSummary.takeOutAmount = totalSummary.amount;
 
   return {
     perRegister: summaries,
@@ -333,20 +469,19 @@ function createExternalExchangeText(externalSummary) {
   for (const registerNumber of registers) {
     const summary = externalSummary.perRegister[registerNumber];
 
-    if (summary.amount === 0) {
+    if (summary.takeOutAmount === 0) {
       html += `<strong>${registerNumber}レジ</strong>：外部両替なし<br><br>`;
       copy += `${registerNumber}レジ：外部両替なし\n\n`;
     } else {
       const receiveText = createReceiveText(summary.receiveItems);
-      const takeOutExample = createReturnExample(summary.amount);
 
-      html += `<strong>${registerNumber}レジ</strong>：${formatYen(summary.amount)}分取り出し<br>`;
+      html += `<strong>${registerNumber}レジ</strong>：${formatYen(summary.takeOutAmount)}分取り出し<br>`;
       html += `→ 入れるもの：${receiveText}<br>`;
-      html += `→ 取り出し例：${takeOutExample}<br><br>`;
+      html += `→ 取り出し：${summary.takeOutExample}<br><br>`;
 
-      copy += `${registerNumber}レジ：${formatYen(summary.amount)}分取り出し\n`;
+      copy += `${registerNumber}レジ：${formatYen(summary.takeOutAmount)}分取り出し\n`;
       copy += `→ 入れるもの：${receiveText}\n`;
-      copy += `→ 取り出し例：${takeOutExample}\n\n`;
+      copy += `→ 取り出し：${summary.takeOutExample}\n\n`;
     }
   }
 
@@ -356,7 +491,7 @@ function createExternalExchangeText(externalSummary) {
 function createExternalTotalText(externalSummary) {
   const total = externalSummary.total;
 
-  if (total.amount === 0) {
+  if (total.takeOutAmount === 0) {
     return {
       html: "外部両替はありません。",
       copy: "外部両替はありません。"
@@ -366,11 +501,11 @@ function createExternalTotalText(externalSummary) {
   const receiveText = createReceiveText(total.receiveItems);
 
   const html =
-    `<strong>合計取り出し金額：${formatYen(total.amount)}分</strong><br>` +
+    `<strong>合計取り出し金額：${formatYen(total.takeOutAmount)}分</strong><br>` +
     `→ 必要なお金：${receiveText}`;
 
   const copy =
-    `合計取り出し金額：${formatYen(total.amount)}分\n` +
+    `合計取り出し金額：${formatYen(total.takeOutAmount)}分\n` +
     `→ 必要なお金：${receiveText}`;
 
   return { html, copy };
