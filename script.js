@@ -380,9 +380,9 @@ function createExternalExchangeSummary(adjustedCounts) {
   };
 
   const moneyRules = [
-    { moneyType: 5000, lowerLimit: 9 },
-    { moneyType: 1000, lowerLimit: 34 },
-    { moneyType: 500, lowerLimit: 9 }
+    { moneyType: 5000, lowerLimit: 10 },
+    { moneyType: 1000, lowerLimit: 38 },
+    { moneyType: 500, lowerLimit: 10 }
   ];
 
   for (const registerNumber of registers) {
