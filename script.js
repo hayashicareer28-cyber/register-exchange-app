@@ -25,13 +25,7 @@ function createReturnExample(amount) {
   const moneyTypes = [
     { name: "10000円札", value: 10000 },
     { name: "5000円札", value: 5000 },
-    { name: "1000円札", value: 1000 },
-    { name: "500円玉", value: 500 },
-    { name: "100円玉", value: 100 },
-    { name: "50円玉", value: 50 },
-    { name: "10円玉", value: 10 },
-    { name: "5円玉", value: 5 },
-    { name: "1円玉", value: 1 }
+    { name: "1000円札", value: 1000 }
   ];
 
   for (const money of moneyTypes) {
@@ -128,12 +122,13 @@ function findAdjustedTakeOutAmount(baseAmount, receiveItems) {
   let takeOutTypes = [
     { name: "10000円札", value: 10000 },
     { name: "5000円札", value: 5000 },
-    { name: "1000円札", value: 1000 },
-    { name: "500円玉", value: 500 }
+    { name: "1000円札", value: 1000 }
   ].filter((money) => !forbidden.has(money.value));
 
   if (takeOutTypes.length === 0) {
-    takeOutTypes = [{ name: "10000円札", value: 10000 }];
+    takeOutTypes = [
+      { name: "10000円札", value: 10000 }
+    ];
   }
 
   let target = Math.ceil(baseAmount / 1000) * 1000;
@@ -151,7 +146,9 @@ function findAdjustedTakeOutAmount(baseAmount, receiveItems) {
 
   return {
     amount: Math.ceil(baseAmount / 10000) * 10000,
-    takeOutTypes: [{ name: "10000円札", value: 10000 }]
+    takeOutTypes: [
+      { name: "10000円札", value: 10000 }
+    ]
   };
 }
 
@@ -178,11 +175,6 @@ function addAdjustmentToReceive(summary, adjustmentAmount) {
 
   if (adjustmentAmount % 1000 === 0) {
     addReceiveItem(summary, "1000円札", "枚", adjustmentAmount / 1000);
-    return;
-  }
-
-  if (adjustmentAmount % 500 === 0) {
-    addReceiveItem(summary, "500円玉", "枚", adjustmentAmount / 500);
     return;
   }
 
@@ -380,9 +372,9 @@ function createExternalExchangeSummary(adjustedCounts) {
   };
 
   const moneyRules = [
-    { moneyType: 5000, lowerLimit: 10 },
+    { moneyType: 5000, lowerLimit: 9 },
     { moneyType: 1000, lowerLimit: 38 },
-    { moneyType: 500, lowerLimit: 10 }
+    { moneyType: 500, lowerLimit: 9 }
   ];
 
   for (const registerNumber of registers) {
