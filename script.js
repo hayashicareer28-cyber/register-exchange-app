@@ -1,3 +1,4 @@
+```javascript
 let lastCopyText = "";
 
 const registers = [1, 2, 3];
@@ -18,6 +19,8 @@ function formatYen(amount) {
   return amount.toLocaleString() + "円";
 }
 
+// 外部両替の「取り出し」用。
+// 取り出しはお札だけにする。
 function createReturnExample(amount) {
   let remaining = amount;
   const parts = [];
@@ -26,6 +29,36 @@ function createReturnExample(amount) {
     { name: "10000円札", value: 10000 },
     { name: "5000円札", value: 5000 },
     { name: "1000円札", value: 1000 }
+  ];
+
+  for (const money of moneyTypes) {
+    const count = Math.floor(remaining / money.value);
+
+    if (count > 0) {
+      parts.push(`${money.name}${count}枚`);
+      remaining -= count * money.value;
+    }
+  }
+
+  return parts.join("、");
+}
+
+// レジ間移動の「返金」用。
+// レジ間の返金は小銭も使ってOK。
+function createRegisterRefundExample(amount) {
+  let remaining = amount;
+  const parts = [];
+
+  const moneyTypes = [
+    { name: "10000円札", value: 10000 },
+    { name: "5000円札", value: 5000 },
+    { name: "1000円札", value: 1000 },
+    { name: "500円玉", value: 500 },
+    { name: "100円玉", value: 100 },
+    { name: "50円玉", value: 50 },
+    { name: "10円玉", value: 10 },
+    { name: "5円玉", value: 5 },
+    { name: "1円玉", value: 1 }
   ];
 
   for (const money of moneyTypes) {
@@ -116,6 +149,10 @@ function canMakeAmount(amount, moneyTypes) {
   return dp[amount];
 }
 
+// 外部両替で取り出すお金を決める。
+// ルール：
+// 1. 取り出しに使えるのはお札だけ
+// 2. 入れるものに含まれる金種は、取り出し側では使わない
 function findAdjustedTakeOutAmount(baseAmount, receiveItems) {
   const forbidden = getForbiddenTakeOutValues(receiveItems);
 
@@ -248,17 +285,17 @@ function createRegisterMoveResult() {
 
         const moveCount = Math.min(surplus.count, shortage.count);
         const amount = moveCount * coin;
-        const returnExample = createReturnExample(amount);
+        const refundExample = createRegisterRefundExample(amount);
 
         const htmlText =
           `${surplus.registerNumber}レジ → ${shortage.registerNumber}レジ：` +
           `${coin}円玉${moveCount}枚（${formatYen(amount)}分）<br>` +
-          `返金：${shortage.registerNumber}レジ → ${surplus.registerNumber}レジ：${returnExample}`;
+          `返金：${shortage.registerNumber}レジ → ${surplus.registerNumber}レジ：${refundExample}`;
 
         const copyText =
           `${surplus.registerNumber}レジ → ${shortage.registerNumber}レジ：` +
           `${coin}円玉${moveCount}枚（${formatYen(amount)}分）\n` +
-          `返金：${shortage.registerNumber}レジ → ${surplus.registerNumber}レジ：${returnExample}`;
+          `返金：${shortage.registerNumber}レジ → ${surplus.registerNumber}レジ：${refundExample}`;
 
         moveHtmlTexts.push(htmlText);
         moveCopyTexts.push(copyText);
@@ -588,3 +625,4 @@ document.querySelectorAll("input[type='number']").forEach(function(input) {
     }
   });
 });
+```
