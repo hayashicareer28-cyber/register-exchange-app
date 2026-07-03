@@ -1,4 +1,3 @@
-```javascript
 let lastCopyText = "";
 
 const registers = [1, 2, 3];
@@ -625,4 +624,3 @@ document.querySelectorAll("input[type='number']").forEach(function(input) {
     }
   });
 });
-```
