@@ -57,11 +57,33 @@
     <button onclick="calculate()">両替指示を作成</button>
   </div>
 
-  <h2>結果</h2>
-  <div id="result" class="result-box">ここに結果が表示されます。</div>
+  <div class="result-heading">
+    <div>
+      <span class="eyebrow">EXCHANGE PLAN</span>
+      <h2>両替指示</h2>
+    </div>
+  </div>
 
-  <h2>コピー用テキスト</h2>
-  <pre id="copyText" class="copy-box">ここにコピー用テキストが表示されます。</pre>
+  <div id="result" class="result-box">
+    <p class="empty-state">計算後の指示がここに表示されます。</p>
+  </div>
+
+  <details class="copy-details">
+    <summary>コピー用テキストを確認</summary>
+    <pre id="copyText" class="copy-box">ここにコピー用テキストが表示されます。</pre>
+  </details>
+
+  <section class="history-section">
+    <div class="history-heading">
+      <div>
+        <span class="eyebrow">SAVED RESULTS</span>
+        <h2>保存した結果</h2>
+      </div>
+      <button type="button" class="history-clear-button" onclick="clearHistory()">履歴をすべて削除</button>
+    </div>
+    <p class="history-note">計算結果はこのブラウザに自動保存されます（直近20件）。</p>
+    <div id="historyList" class="history-list"></div>
+  </section>
 
   <script src="script.js"></script>
 </body>
