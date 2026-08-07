@@ -1,4 +1,5 @@
 let lastCopyText = "";
+const historyStorageKey = "registerExchangeHistory";
 
 const registers = [1, 2, 3];
 const coinTypes = [100, 50, 10, 5, 1];
@@ -130,50 +131,59 @@ function getForbiddenTakeOutValues(receiveItems) {
   return forbidden;
 }
 
-function canMakeAmount(amount, moneyTypes) {
-  const dp = new Array(amount + 1).fill(false);
-  dp[0] = true;
+function findTakeOutCombination(amount, moneyTypes, availableCounts) {
+  const allowedValues = new Set(moneyTypes.map((money) => money.value));
+  const available10000 = allowedValues.has(10000) ? availableCounts[10000] : 0;
+  const available5000 = allowedValues.has(5000) ? availableCounts[5000] : 0;
+  const available1000 = allowedValues.has(1000) ? availableCounts[1000] : 0;
 
-  for (let current = 0; current <= amount; current++) {
-    if (!dp[current]) continue;
+  const max10000Count = Math.min(available10000, Math.floor(amount / 10000));
 
-    for (const money of moneyTypes) {
-      const next = current + money.value;
-      if (next <= amount) {
-        dp[next] = true;
-      }
+  for (let count10000 = max10000Count; count10000 >= 0; count10000--) {
+    const after10000 = amount - count10000 * 10000;
+    const count5000 = Math.min(available5000, Math.floor(after10000 / 5000));
+    const after5000 = after10000 - count5000 * 5000;
+    const count1000 = after5000 / 1000;
+
+    if (Number.isInteger(count1000) && count1000 <= available1000) {
+      return {
+        10000: count10000,
+        5000: count5000,
+        1000: count1000
+      };
     }
   }
 
-  return dp[amount];
+  return null;
 }
 
 // 外部両替で取り出すお金を決める。
 // ルール：
 // 1. 取り出しに使えるのはお札だけ
 // 2. 入れるものに含まれる金種は、取り出し側では使わない
-function findAdjustedTakeOutAmount(baseAmount, receiveItems) {
+function findAdjustedTakeOutAmount(baseAmount, receiveItems, availableCounts) {
   const forbidden = getForbiddenTakeOutValues(receiveItems);
 
-  let takeOutTypes = [
+  const takeOutTypes = [
     { name: "10000円札", value: 10000 },
     { name: "5000円札", value: 5000 },
     { name: "1000円札", value: 1000 }
   ].filter((money) => !forbidden.has(money.value));
 
-  if (takeOutTypes.length === 0) {
-    takeOutTypes = [
-      { name: "10000円札", value: 10000 }
-    ];
-  }
-
   let target = Math.ceil(baseAmount / 1000) * 1000;
+  const availableAmount = takeOutTypes.reduce(
+    (total, money) => total + money.value * availableCounts[money.value],
+    0
+  );
 
-  while (target <= baseAmount + 100000) {
-    if (canMakeAmount(target, takeOutTypes)) {
+  while (target <= availableAmount) {
+    const combination = findTakeOutCombination(target, takeOutTypes, availableCounts);
+
+    if (combination) {
       return {
+        possible: true,
         amount: target,
-        takeOutTypes
+        combination
       };
     }
 
@@ -181,25 +191,24 @@ function findAdjustedTakeOutAmount(baseAmount, receiveItems) {
   }
 
   return {
-    amount: Math.ceil(baseAmount / 10000) * 10000,
-    takeOutTypes: [
-      { name: "10000円札", value: 10000 }
-    ]
+    possible: false,
+    availableAmount
   };
 }
 
-function createTakeOutExampleWithAllowedTypes(amount, takeOutTypes) {
-  let remaining = amount;
+function createTakeOutExample(combination) {
   const parts = [];
 
-  const sortedTypes = [...takeOutTypes].sort((a, b) => b.value - a.value);
+  const moneyTypes = [
+    { name: "10000円札", value: 10000 },
+    { name: "5000円札", value: 5000 },
+    { name: "1000円札", value: 1000 }
+  ];
 
-  for (const money of sortedTypes) {
-    const count = Math.floor(remaining / money.value);
-
+  for (const money of moneyTypes) {
+    const count = combination[money.value] || 0;
     if (count > 0) {
       parts.push(`${money.name}${count}枚`);
-      remaining -= count * money.value;
     }
   }
 
@@ -217,14 +226,32 @@ function addAdjustmentToReceive(summary, adjustmentAmount) {
   addReceiveItem(summary, "1000円札", "枚", Math.ceil(adjustmentAmount / 1000));
 }
 
-function finalizeExternalSummary(summary) {
+function finalizeExternalSummary(summary, registerNumber) {
+  const availableCounts = {
+    10000: Math.floor(getCount(registerNumber, 10000)),
+    5000: Math.floor(getCount(registerNumber, 5000)),
+    1000: Math.floor(getCount(registerNumber, 1000))
+  };
+
   for (let i = 0; i < 5; i++) {
-    const result = findAdjustedTakeOutAmount(summary.amount, summary.receiveItems);
+    const result = findAdjustedTakeOutAmount(
+      summary.amount,
+      summary.receiveItems,
+      availableCounts
+    );
+
+    if (!result.possible) {
+      summary.error =
+        `取り出し用の紙幣が不足しています（必要：${formatYen(summary.amount)}分、` +
+        `使用可能：${formatYen(result.availableAmount)}分）。`;
+      return;
+    }
+
     const adjustmentAmount = result.amount - summary.amount;
 
     if (adjustmentAmount === 0) {
       summary.takeOutAmount = result.amount;
-      summary.takeOutExample = createTakeOutExampleWithAllowedTypes(result.amount, result.takeOutTypes);
+      summary.takeOutExample = createTakeOutExample(result.combination);
       return;
     }
 
@@ -232,9 +259,21 @@ function finalizeExternalSummary(summary) {
     summary.amount = result.amount;
   }
 
-  const finalResult = findAdjustedTakeOutAmount(summary.amount, summary.receiveItems);
+  const finalResult = findAdjustedTakeOutAmount(
+    summary.amount,
+    summary.receiveItems,
+    availableCounts
+  );
+
+  if (!finalResult.possible) {
+    summary.error =
+      `取り出し用の紙幣が不足しています（必要：${formatYen(summary.amount)}分、` +
+      `使用可能：${formatYen(finalResult.availableAmount)}分）。`;
+    return;
+  }
+
   summary.takeOutAmount = finalResult.amount;
-  summary.takeOutExample = createTakeOutExampleWithAllowedTypes(finalResult.amount, finalResult.takeOutTypes);
+  summary.takeOutExample = createTakeOutExample(finalResult.combination);
 }
 
 function createRegisterMoveResult() {
@@ -287,9 +326,15 @@ function createRegisterMoveResult() {
         const refundExample = createRegisterRefundExample(amount);
 
         const htmlText =
-          `${surplus.registerNumber}レジ → ${shortage.registerNumber}レジ：` +
-          `${coin}円玉${moveCount}枚（${formatYen(amount)}分）<br>` +
-          `返金：${shortage.registerNumber}レジ → ${surplus.registerNumber}レジ：${refundExample}`;
+          `<article class="move-card">` +
+            `<div class="move-route">` +
+              `<span class="register-pill">${surplus.registerNumber}レジ</span>` +
+              `<span class="route-arrow" aria-hidden="true">→</span>` +
+              `<span class="register-pill">${shortage.registerNumber}レジ</span>` +
+            `</div>` +
+            `<p class="move-main"><strong>${coin}円玉 ${moveCount}枚</strong><span>${formatYen(amount)}分</span></p>` +
+            `<p class="refund-line"><span>返金</span>${shortage.registerNumber}レジ → ${surplus.registerNumber}レジ：${refundExample}</p>` +
+          `</article>`;
 
         const copyText =
           `${surplus.registerNumber}レジ → ${shortage.registerNumber}レジ：` +
@@ -309,7 +354,9 @@ function createRegisterMoveResult() {
   }
 
   return {
-    html: moveHtmlTexts.length === 0 ? "レジ間移動はありません。" : moveHtmlTexts.join("<br><br>"),
+    html: moveHtmlTexts.length === 0
+      ? '<p class="empty-state">レジ間移動はありません。</p>'
+      : `<div class="move-list">${moveHtmlTexts.join("")}</div>`,
     copy: moveCopyTexts.length === 0 ? "レジ間移動はありません。" : moveCopyTexts.join("\n\n"),
     adjustedCounts
   };
@@ -404,13 +451,14 @@ function createExternalExchangeSummary(adjustedCounts) {
     amount: 0,
     receiveItems: {},
     takeOutAmount: 0,
-    takeOutExample: ""
+    takeOutExample: "",
+    failedRegisters: []
   };
 
   const moneyRules = [
     { moneyType: 5000, lowerLimit: 10 },
     { moneyType: 1000, lowerLimit: 38 },
-    { moneyType: 500, lowerLimit: 10 }
+    { moneyType: 500, lowerLimit: 15 }
   ];
 
   for (const registerNumber of registers) {
@@ -468,11 +516,16 @@ function createExternalExchangeSummary(adjustedCounts) {
   }
 
   for (const registerNumber of registers) {
-    finalizeExternalSummary(summaries[registerNumber]);
+    finalizeExternalSummary(summaries[registerNumber], registerNumber);
   }
 
   for (const registerNumber of registers) {
     const summary = summaries[registerNumber];
+
+    if (summary.error) {
+      totalSummary.failedRegisters.push(registerNumber);
+      continue;
+    }
 
     totalSummary.amount += summary.takeOutAmount;
 
@@ -497,15 +550,46 @@ function createExternalExchangeText(externalSummary) {
   for (const registerNumber of registers) {
     const summary = externalSummary.perRegister[registerNumber];
 
-    if (summary.takeOutAmount === 0) {
-      html += `<strong>${registerNumber}レジ</strong>：外部両替なし<br><br>`;
+    if (summary.error) {
+      html +=
+        `<article class="instruction-card instruction-card--notice">` +
+          `<div class="instruction-card__header">` +
+            `<h4>${registerNumber}レジ</h4>` +
+            `<span class="status-badge status-badge--notice">紙幣不足</span>` +
+          `</div>` +
+          `<p class="notice-text">${summary.error}</p>` +
+        `</article>`;
+      copy += `${registerNumber}レジ：${summary.error}\n\n`;
+    } else if (summary.takeOutAmount === 0) {
+      html +=
+        `<article class="instruction-card instruction-card--empty">` +
+          `<div class="instruction-card__header">` +
+            `<h4>${registerNumber}レジ</h4>` +
+            `<span class="status-badge status-badge--done">作業なし</span>` +
+          `</div>` +
+          `<p>外部両替はありません。</p>` +
+        `</article>`;
       copy += `${registerNumber}レジ：外部両替なし\n\n`;
     } else {
       const receiveText = createReceiveText(summary.receiveItems);
 
-      html += `<strong>${registerNumber}レジ</strong>：${formatYen(summary.takeOutAmount)}分取り出し<br>`;
-      html += `→ 入れるもの：${receiveText}<br>`;
-      html += `→ 取り出し：${summary.takeOutExample}<br><br>`;
+      html +=
+        `<article class="instruction-card">` +
+          `<div class="instruction-card__header">` +
+            `<h4>${registerNumber}レジ</h4>` +
+            `<span class="amount-badge">${formatYen(summary.takeOutAmount)}分</span>` +
+          `</div>` +
+          `<div class="instruction-grid">` +
+            `<div class="instruction-detail instruction-detail--receive">` +
+              `<span class="instruction-label">入れるもの</span>` +
+              `<p>${receiveText}</p>` +
+            `</div>` +
+            `<div class="instruction-detail instruction-detail--takeout">` +
+              `<span class="instruction-label">取り出すもの</span>` +
+              `<p>${summary.takeOutExample}</p>` +
+            `</div>` +
+          `</div>` +
+        `</article>`;
 
       copy += `${registerNumber}レジ：${formatYen(summary.takeOutAmount)}分取り出し\n`;
       copy += `→ 入れるもの：${receiveText}\n`;
@@ -518,23 +602,38 @@ function createExternalExchangeText(externalSummary) {
 
 function createExternalTotalText(externalSummary) {
   const total = externalSummary.total;
+  const failedText = total.failedRegisters.length > 0
+    ? `${total.failedRegisters.join("・")}レジは紙幣不足のため合計に含まれていません。`
+    : "";
 
   if (total.takeOutAmount === 0) {
     return {
-      html: "外部両替はありません。",
-      copy: "外部両替はありません。"
+      html: failedText
+        ? `<div class="total-card total-card--notice"><span>合計を作成できません</span><p>${failedText}</p></div>`
+        : '<p class="empty-state">外部両替はありません。</p>',
+      copy: failedText || "外部両替はありません。"
     };
   }
 
   const receiveText = createReceiveText(total.receiveItems);
 
   const html =
-    `<strong>合計取り出し金額：${formatYen(total.takeOutAmount)}分</strong><br>` +
-    `→ 必要なお金：${receiveText}`;
+    `<div class="total-card">` +
+      `<div class="total-amount">` +
+        `<span>合計取り出し金額</span>` +
+        `<strong>${formatYen(total.takeOutAmount)}分</strong>` +
+      `</div>` +
+      `<div class="total-needed">` +
+        `<span>必要なお金</span>` +
+        `<p>${receiveText}</p>` +
+      `</div>` +
+      (failedText ? `<p class="total-warning">※ ${failedText}</p>` : "") +
+    `</div>`;
 
   const copy =
     `合計取り出し金額：${formatYen(total.takeOutAmount)}分\n` +
-    `→ 必要なお金：${receiveText}`;
+    `→ 必要なお金：${receiveText}` +
+    (failedText ? `\n※ ${failedText}` : "");
 
   return { html, copy };
 }
@@ -546,14 +645,18 @@ function calculate() {
   const externalTotalText = createExternalTotalText(externalSummary);
 
   const html =
-    "<div class='section-title'>レジ間移動</div>" +
-    moveResult.html + "<br><br>" +
-
-    "<div class='section-title'>外部両替：レジ別指示</div>" +
-    externalText.html +
-
-    "<div class='section-title'>外部両替：合計</div>" +
-    externalTotalText.html;
+    `<section class="result-section">` +
+      `<div class="section-heading"><span>1</span><h3>レジ間移動</h3></div>` +
+      moveResult.html +
+    `</section>` +
+    `<section class="result-section">` +
+      `<div class="section-heading"><span>2</span><h3>外部両替・レジ別</h3></div>` +
+      `<div class="instruction-list">${externalText.html}</div>` +
+    `</section>` +
+    `<section class="result-section result-section--total">` +
+      `<div class="section-heading"><span>3</span><h3>外部両替・合計</h3></div>` +
+      externalTotalText.html +
+    `</section>`;
 
   const copy =
     "【レジ間移動】\n" +
@@ -569,6 +672,130 @@ function calculate() {
   document.getElementById("copyText").textContent = copy;
 
   lastCopyText = copy;
+
+  let summaryLabel = "外部両替なし";
+
+  if (externalSummary.total.takeOutAmount > 0) {
+    summaryLabel = `合計 ${formatYen(externalSummary.total.takeOutAmount)}分`;
+  } else if (externalSummary.total.failedRegisters.length > 0) {
+    summaryLabel = "紙幣不足・確認が必要";
+  }
+
+  saveHistory(html, copy, summaryLabel);
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function getHistory() {
+  try {
+    const savedHistory = JSON.parse(localStorage.getItem(historyStorageKey) || "[]");
+    return Array.isArray(savedHistory) ? savedHistory : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function setHistory(history) {
+  try {
+    localStorage.setItem(historyStorageKey, JSON.stringify(history.slice(0, 20)));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function saveHistory(html, copy, summaryLabel) {
+  const history = getHistory();
+
+  history.unshift({
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    summaryLabel,
+    html,
+    copy
+  });
+
+  setHistory(history);
+  renderHistory();
+}
+
+function formatHistoryDate(createdAt) {
+  const date = new Date(createdAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return "保存日時不明";
+  }
+
+  return date.toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function renderHistory() {
+  const historyList = document.getElementById("historyList");
+  const history = getHistory();
+
+  if (history.length === 0) {
+    historyList.innerHTML = '<p class="empty-state">保存された結果はまだありません。</p>';
+    return;
+  }
+
+  historyList.innerHTML = history.map((item) => {
+    const id = Number(item.id);
+    const safeId = Number.isFinite(id) ? id : 0;
+
+    return (
+      `<details class="history-item">` +
+        `<summary>` +
+          `<span class="history-item__title">` +
+            `<strong>${escapeHtml(formatHistoryDate(item.createdAt))}</strong>` +
+            `<small>${escapeHtml(item.summaryLabel || "保存した両替指示")}</small>` +
+          `</span>` +
+        `</summary>` +
+        `<div class="history-result">${item.html}</div>` +
+        `<div class="history-actions">` +
+          `<button type="button" onclick="restoreHistoryItem(${safeId})">この結果を表示</button>` +
+          `<button type="button" class="delete-button" onclick="deleteHistoryItem(${safeId})">削除</button>` +
+        `</div>` +
+      `</details>`
+    );
+  }).join("");
+}
+
+function restoreHistoryItem(id) {
+  const item = getHistory().find((historyItem) => historyItem.id === id);
+
+  if (!item) return;
+
+  document.getElementById("result").innerHTML = item.html;
+  document.getElementById("copyText").textContent = item.copy;
+  lastCopyText = item.copy;
+
+  document.querySelector(".result-heading").scrollIntoView({ behavior: "smooth" });
+}
+
+function deleteHistoryItem(id) {
+  const history = getHistory().filter((item) => item.id !== id);
+  setHistory(history);
+  renderHistory();
+}
+
+function clearHistory() {
+  if (!confirm("保存した結果をすべて削除しますか？")) return;
+
+  setHistory([]);
+  renderHistory();
 }
 
 function copyResult() {
@@ -624,3 +851,5 @@ document.querySelectorAll("input[type='number']").forEach(function(input) {
     }
   });
 });
+
+renderHistory();
